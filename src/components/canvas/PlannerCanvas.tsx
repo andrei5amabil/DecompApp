@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Stage, Layer, Line, Circle, Text } from 'react-konva';
+import { Stage, Layer, Line, Circle, Text, Group } from 'react-konva';
 import { type KonvaEventObject } from 'konva/lib/Node';
-import { type Point } from '../../types/geometry';
-import { type DrawingTool, type PlannerInputs } from '../../types/planner';
+import { type Point, type TriangleCell } from '../../types/geometry';
+import { type DrawingTool, type PlannerInputs, type PlannerResult, type LayerVisibility } from '../../types/planner';
 import { DrawingToolbar } from '../controls/DrawingToolbar';
+import { LayerControls } from '../controls/LayerControls';
 import {
-  getDistance,
   validateNextVertex,
   validatePolygonClosure,
   validatePointInFreeSpace,
 } from '../../algorithms/common/validation';
+import { solveTriangularDecomposition } from '../../algorithms/triangular/planner';
 
 interface PlannerCanvasProps {
   width?: number;
@@ -19,8 +20,8 @@ interface PlannerCanvasProps {
 const SNAP_RADIUS = 15;
 
 export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
-  width = 850,
-  height = 550,
+  width = 880,
+  height = 560,
 }) => {
   const [inputs, setInputs] = useState<PlannerInputs>({
     field: null,
@@ -35,10 +36,29 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
   const [isSnapping, setIsSnapping] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Algorithm Results & Layer Toggles
+  const [plannerResult, setPlannerResult] = useState<PlannerResult | null>(null);
+  const [visibility, setVisibility] = useState<LayerVisibility>({
+    showGeometry: true,
+    showDecomposition: true,
+    showGraph: true,
+    showWaypoints: true,
+    showPath: true,
+  });
+
+  const getDistance = (p1: Point, p2: Point): number => {
+    const dx = p1.x - p2.x;
+    const dy = p1.y - p2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
   const notifyError = (msg: string) => {
     setErrorMessage(msg);
     setTimeout(() => setErrorMessage(null), 3500);
   };
+
+  // Discard previous results whenever geometry mutations occur
+  const resetResult = () => setPlannerResult(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -97,7 +117,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
       y: Math.round(pointerPos.y),
     };
 
-    // 1. Start / Finish point markers
+    // 1. Start / Finish point placement
     if (activeTool === 'SET_START' || activeTool === 'SET_FINISH') {
       const freeSpaceCheck = validatePointInFreeSpace(
         clickPoint,
@@ -109,6 +129,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
         return;
       }
 
+      resetResult();
       if (activeTool === 'SET_START') {
         setInputs((prev) => ({ ...prev, startPoint: clickPoint }));
       } else {
@@ -131,6 +152,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
         return;
       }
 
+      resetResult();
       if (activeTool === 'DRAW_FIELD') {
         setInputs((prev) => ({ ...prev, field: activePoints }));
         setActivePoints([]);
@@ -152,7 +174,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
       }
     }
 
-    // 3. Placing an intermediate vertex: validate BEFORE appending
+    // 3. Regular vertex placement
     if (activeTool === 'DRAW_FIELD' || activeTool === 'DRAW_OBSTACLE') {
       const vertexCheck = validateNextVertex(
         clickPoint,
@@ -164,7 +186,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
 
       if (!vertexCheck.isValid) {
         notifyError(vertexCheck.error!);
-        return; // Reject click immediately
+        return;
       }
 
       setErrorMessage(null);
@@ -182,7 +204,27 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
     setActivePoints([]);
     setIsSnapping(false);
     setErrorMessage(null);
+    setPlannerResult(null);
     setActiveTool('DRAW_FIELD');
+  };
+
+  const handleLaunchSolver = () => {
+    if (!inputs.field || !inputs.startPoint || !inputs.finishPoint) {
+      notifyError('Set Field, C_init, and C_final before running.');
+      return;
+    }
+
+    const result = solveTriangularDecomposition(inputs);
+    if (result.error) {
+      notifyError(result.error);
+    } else if (!result.path) {
+      notifyError('No path found! C_init and C_final might be in disconnected regions.');
+    }
+    setPlannerResult(result);
+  };
+
+  const handleToggleLayer = (key: keyof LayerVisibility) => {
+    setVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const lastActivePoint = activePoints[activePoints.length - 1];
@@ -192,8 +234,20 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
       ? [lastActivePoint.x, lastActivePoint.y, rubberBandTarget.x, rubberBandTarget.y]
       : [];
 
+  const traversedCellSet = new Set(plannerResult?.path?.traversedCellIds || []);
+  const canSolve = Boolean(inputs.field && inputs.startPoint && inputs.finishPoint);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        width: `${width}px`,
+        maxWidth: `${width}px`,
+        boxSizing: 'border-box',
+      }}
+    >
       <DrawingToolbar
         currentTool={activeTool}
         onSelectTool={(tool) => {
@@ -209,6 +263,14 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
         onClearAll={handleClearAll}
       />
 
+      <LayerControls
+        canSolve={canSolve}
+        onSolve={handleLaunchSolver}
+        result={plannerResult}
+        visibility={visibility}
+        onToggleLayer={handleToggleLayer}
+      />
+
       {errorMessage && (
         <div
           style={{
@@ -219,20 +281,24 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: 500,
+            boxSizing: 'border-box',
+            width: '100%',
           }}
         >
           ⚠️ {errorMessage}
         </div>
       )}
 
+      {/* Canvas Box */}
       <div
         style={{
           border: '2px solid #cbd5e1',
           borderRadius: '8px',
           overflow: 'hidden',
           backgroundColor: '#ffffff',
-          width,
-          height,
+          width: `${width}px`,
+          height: `${height}px`,
+          boxSizing: 'border-box',
           cursor: isSnapping
             ? 'pointer'
             : activeTool.startsWith('SET_')
@@ -247,34 +313,99 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
+          {/* ================= 1. DECOMPOSITION & SEARCH LAYER ================= */}
+          {plannerResult && visibility.showDecomposition && (
+            <Layer>
+              {(plannerResult.cells as TriangleCell[]).map((cell) => {
+                const isTraversed = traversedCellSet.has(cell.id);
+                return (
+                  <Group key={`cell-${cell.id}`}>
+                    {/* Triangle Polygon (Yellow if traversed, matching slide 2) */}
+                    <Line
+                      points={cell.vertices.flatMap((v) => [v.x, v.y])}
+                      closed={true}
+                      fill={isTraversed ? 'rgba(254, 240, 138, 0.55)' : 'transparent'}
+                      stroke="#991b1b"
+                      strokeWidth={1.2}
+                      lineJoin="round"
+                    />
+
+                    {/* Cell Label Circle & Number k_i at Centroid */}
+                    <Circle
+                      x={cell.centroid.x}
+                      y={cell.centroid.y}
+                      radius={10}
+                      fill={isTraversed ? '#fef08a' : '#ffffff'}
+                      stroke="#991b1b"
+                      strokeWidth={1.2}
+                    />
+                    <Text
+                      x={cell.centroid.x - 7}
+                      y={cell.centroid.y - 5}
+                      width={14}
+                      align="center"
+                      text={cell.id.toString()}
+                      fontSize={10}
+                      fontStyle="bold"
+                      fill="#1e293b"
+                    />
+                  </Group>
+                );
+              })}
+            </Layer>
+          )}
+
+          {/* ================= 2. DUAL CONNECTIVITY GRAPH G LAYER ================= */}
+          {plannerResult && visibility.showGraph && (
+            <Layer>
+              {Array.from(plannerResult.graph.adjacency.entries()).map(([fromId, edges]) => {
+                const fromNode = plannerResult.graph.nodes.get(fromId);
+                if (!fromNode) return null;
+
+                return edges.map((edge) => {
+                  if (fromId > edge.toNodeId) return null; // Render each undirected edge once
+                  const toNode = plannerResult.graph.nodes.get(edge.toNodeId);
+                  if (!toNode) return null;
+
+                  return (
+                    <Line
+                      key={`g-edge-${fromId}-${edge.toNodeId}`}
+                      points={[fromNode.center.x, fromNode.center.y, toNode.center.x, toNode.center.y]}
+                      stroke="#64748b"
+                      strokeWidth={1.2}
+                      dash={[4, 3]}
+                    />
+                  );
+                });
+              })}
+            </Layer>
+          )}
+
+          {/* ================= 3. USER GEOMETRY LAYER ================= */}
           <Layer>
-            {/* Field */}
+            {/* Field Boundary */}
             {inputs.field && (
               <Line
                 points={inputs.field.flatMap((p) => [p.x, p.y])}
                 closed={true}
-                fill="#f8fafc"
-                stroke="#0284c7"
+                fill="transparent"
+                stroke="#0f766e"
                 strokeWidth={3}
                 lineJoin="round"
               />
             )}
 
-            {/* Obstacles (Teal) */}
+            {/* Obstacles (Teal fill matching the reference) */}
             {inputs.obstacles.map((obs, idx) => (
-              <React.Fragment key={`obs-${idx}`}>
-                <Line
-                  points={obs.flatMap((p) => [p.x, p.y])}
-                  closed={true}
-                  fill="#008080"
-                  stroke="#004d40"
-                  strokeWidth={2}
-                  lineJoin="round"
-                />
-                {obs.map((p, pIdx) => (
-                  <Circle key={`obs-${idx}-${pIdx}`} x={p.x} y={p.y} radius={3.5} fill="#004d40" />
-                ))}
-              </React.Fragment>
+              <Line
+                key={`obs-${idx}`}
+                points={obs.flatMap((p) => [p.x, p.y])}
+                closed={true}
+                fill="#008080"
+                stroke="#004d40"
+                strokeWidth={2}
+                lineJoin="round"
+              />
             ))}
 
             {/* In-progress polygon wireframe */}
@@ -288,7 +419,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
               />
             )}
 
-            {/* Rubber-band preview line */}
+            {/* Rubber-band dashed line */}
             {rubberBandCoords.length === 4 && (
               <Line
                 points={rubberBandCoords}
@@ -298,7 +429,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
               />
             )}
 
-            {/* Placed vertices */}
+            {/* Active Drawing Vertices */}
             {activePoints.map((p, idx) => {
               const isP0 = idx === 0;
               const canSnap = isP0 && activePoints.length >= 3;
@@ -317,7 +448,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                   <Circle
                     x={p.x}
                     y={p.y}
-                    radius={canSnap && isSnapping ? 6.5 : 4.5}
+                    radius={canSnap && isSnapping ? 6.5 : 4}
                     fill={canSnap && isSnapping ? '#16a34a' : '#0284c7'}
                     stroke="#ffffff"
                     strokeWidth={1.5}
@@ -325,10 +456,51 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                 </React.Fragment>
               );
             })}
+          </Layer>
 
-            {/* C_initial */}
+          {/* ================= 4. TRAJECTORY & WAYPOINTS LAYER ================= */}
+          {plannerResult?.path && (
+            <Layer>
+              {/* Solved Path Trajectory Line */}
+              {visibility.showPath && (
+                <Line
+                  points={plannerResult.path.points.flatMap((p) => [p.x, p.y])}
+                  stroke="#16a34a"
+                  strokeWidth={3.5}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+              )}
+
+              {/* Waypoints Q_j at shared edge midpoints */}
+              {visibility.showWaypoints &&
+                plannerResult.path.points.slice(1, -1).map((q, idx) => (
+                  <Group key={`waypoint-${idx}`}>
+                    <Circle
+                      x={q.x}
+                      y={q.y}
+                      radius={4.5}
+                      fill="#eab308"
+                      stroke="#000000"
+                      strokeWidth={1}
+                    />
+                    <Text
+                      x={q.x + 6}
+                      y={q.y - 10}
+                      text={`Q${idx + 1}`}
+                      fontSize={11}
+                      fontStyle="bold"
+                      fill="#0f172a"
+                    />
+                  </Group>
+                ))}
+            </Layer>
+          )}
+
+          {/* ================= 5. START / FINISH MARKERS ================= */}
+          <Layer>
             {inputs.startPoint && (
-              <React.Fragment>
+              <Group>
                 <Circle
                   x={inputs.startPoint.x}
                   y={inputs.startPoint.y}
@@ -338,19 +510,18 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                   strokeWidth={2}
                 />
                 <Text
-                  x={inputs.startPoint.x + 9}
-                  y={inputs.startPoint.y - 7}
+                  x={inputs.startPoint.x + 8}
+                  y={inputs.startPoint.y - 8}
                   text="C_init"
                   fontSize={13}
                   fontStyle="bold"
                   fill="#00008b"
                 />
-              </React.Fragment>
+              </Group>
             )}
 
-            {/* C_final */}
             {inputs.finishPoint && (
-              <React.Fragment>
+              <Group>
                 <Circle
                   x={inputs.finishPoint.x}
                   y={inputs.finishPoint.y}
@@ -360,14 +531,14 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                   strokeWidth={2}
                 />
                 <Text
-                  x={inputs.finishPoint.x + 9}
-                  y={inputs.finishPoint.y - 7}
+                  x={inputs.finishPoint.x + 8}
+                  y={inputs.finishPoint.y - 8}
                   text="C_final"
                   fontSize={13}
                   fontStyle="bold"
                   fill="#00008b"
                 />
-              </React.Fragment>
+              </Group>
             )}
           </Layer>
         </Stage>

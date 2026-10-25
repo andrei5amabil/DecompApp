@@ -51,18 +51,17 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
     <div
       style={{
         display: 'flex',
-        flexWrap: 'wrap',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: '12px',
-        padding: '12px 16px',
+        gap: '8px',
+        padding: '10px 14px',
         backgroundColor: '#ffffff',
         border: '1px solid #e2e8f0',
         borderRadius: '8px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+        boxSizing: 'border-box',
+        width: '100%',
       }}
     >
-      {/* Mode Selector Radio Buttons */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         {tools.map((t) => {
           const isSelected = currentTool === t.id;
@@ -75,10 +74,10 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
-                padding: '8px 14px',
+                padding: '6px 12px',
                 borderRadius: '6px',
                 border: isSelected ? '2px solid #0284c7' : '1px solid #cbd5e1',
-                backgroundColor: isSelected ? '#f0f9ff' : t.disabled ? '#f1f5f9' : '#ffffff',
+                backgroundColor: isSelected ? '#f0f9ff' : t.disabled ? '#f8fafc' : '#ffffff',
                 color: t.disabled ? '#94a3b8' : isSelected ? '#0369a1' : '#334155',
                 cursor: t.disabled ? 'not-allowed' : 'pointer',
                 fontWeight: isSelected ? 600 : 500,
@@ -90,7 +89,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
               <span
                 style={{
                   fontSize: '11px',
-                  padding: '2px 6px',
+                  padding: '1px 6px',
                   borderRadius: '10px',
                   backgroundColor: isSelected
                     ? '#bae6fd'
@@ -107,11 +106,10 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
         })}
       </div>
 
-      {/* Global Actions */}
       <button
         onClick={onClearAll}
         style={{
-          padding: '8px 14px',
+          padding: '6px 14px',
           backgroundColor: '#fee2e2',
           color: '#b91c1c',
           border: '1px solid #fca5a5',
@@ -119,6 +117,7 @@ export const DrawingToolbar: React.FC<DrawingToolbarProps> = ({
           cursor: 'pointer',
           fontWeight: 600,
           fontSize: '13px',
+          flexShrink: 0,
         }}
       >
         Clear All
