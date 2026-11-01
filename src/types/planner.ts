@@ -34,12 +34,13 @@ export interface PlannerResult {
   path: WaypointPath | null;
   executionTimeMs: number;
   error?: string;
+  verticalCuts?: Segment[]; // Free-space vertical cuts for trapezoidal decomposition
 }
 
 export interface LayerVisibility {
-  showGeometry: boolean;     // Field and obstacles
-  showDecomposition: boolean;// Cells (triangles / trapezoids) and labels k_i
-  showGraph: boolean;        // Dual connectivity graph G
-  showWaypoints: boolean;    // Q_j midpoint markers
-  showPath: boolean;         // Final trajectory line
+  showGeometry: boolean;      // Field and obstacles
+  showDecomposition: boolean; // Cells (triangles / trapezoids & perpendiculars) and labels k_i
+  showGraph: boolean;         // Dual connectivity graph G
+  showWaypoints: boolean;     // Q_j midpoint markers
+  showPath: boolean;          // Final trajectory line
 }

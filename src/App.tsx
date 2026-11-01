@@ -12,7 +12,7 @@ export function App() {
       }}
     >
       <h1 style={{ marginBottom: '16px', color: '#0f172a' }}>
-        Polygonal Path Planner - Input Test
+        Polygonal Path Planner - Exact Cell Decomposition
       </h1>
       <PlannerCanvas width={900} height={500} />
     </main>
