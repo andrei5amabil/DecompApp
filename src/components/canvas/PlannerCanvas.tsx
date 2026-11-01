@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Stage, Layer, Line, Circle, Text, Group } from 'react-konva';
 import { type KonvaEventObject } from 'konva/lib/Node';
-import { type Point, type TriangleCell } from '../../types/geometry';
-import { type DrawingTool, type PlannerInputs, type PlannerResult, type LayerVisibility } from '../../types/planner';
+import { type Point, type TriangleCell, type TrapezoidCell } from '../../types/geometry';
+import {
+  type DecompositionType,
+  type DrawingTool,
+  type PlannerInputs,
+  type PlannerResult,
+  type LayerVisibility,
+} from '../../types/planner';
 import { DrawingToolbar } from '../controls/DrawingToolbar';
 import { LayerControls } from '../controls/LayerControls';
 import {
@@ -11,10 +17,18 @@ import {
   validatePointInFreeSpace,
 } from '../../algorithms/common/validation';
 import { solveTriangularDecomposition } from '../../algorithms/triangular/planner';
+import { solveTrapezoidalDecomposition } from '../../algorithms/trapezoidal/planner';
 
 interface PlannerCanvasProps {
   width?: number;
   height?: number;
+}
+
+interface DisplayWaypoint {
+  x: number;
+  y: number;
+  label: string;
+  isOnPath: boolean;
 }
 
 const SNAP_RADIUS = 15;
@@ -36,15 +50,35 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
   const [isSnapping, setIsSnapping] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Algorithm Results & Layer Toggles
-  const [plannerResult, setPlannerResult] = useState<PlannerResult | null>(null);
-  const [visibility, setVisibility] = useState<LayerVisibility>({
+  // Active algorithm mode
+  const [selectedAlgorithm, setSelectedAlgorithm] = useState<DecompositionType>('TRAPEZOIDAL');
+
+  // Simultaneous paths comparison mode
+  const [compareBothPaths, setCompareBothPaths] = useState<boolean>(false);
+
+  // Independent results for each category to prevent cross-contamination
+  const [triangularResult, setTriangularResult] = useState<PlannerResult | null>(null);
+  const [trapezoidalResult, setTrapezoidalResult] = useState<PlannerResult | null>(null);
+
+  // Independent layer visibility for each category
+  const [triangularVisibility, setTriangularVisibility] = useState<LayerVisibility>({
     showGeometry: true,
     showDecomposition: true,
     showGraph: true,
     showWaypoints: true,
     showPath: true,
   });
+
+  const [trapezoidalVisibility, setTrapezoidalVisibility] = useState<LayerVisibility>({
+    showGeometry: true,
+    showDecomposition: true,
+    showGraph: true,
+    showWaypoints: true,
+    showPath: true,
+  });
+
+  const activeResult = selectedAlgorithm === 'TRIANGULAR' ? triangularResult : trapezoidalResult;
+  const activeVisibility = selectedAlgorithm === 'TRIANGULAR' ? triangularVisibility : trapezoidalVisibility;
 
   const getDistance = (p1: Point, p2: Point): number => {
     const dx = p1.x - p2.x;
@@ -58,7 +92,10 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
   };
 
   // Discard previous results whenever geometry mutations occur
-  const resetResult = () => setPlannerResult(null);
+  const resetResults = () => {
+    setTriangularResult(null);
+    setTrapezoidalResult(null);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -129,7 +166,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
         return;
       }
 
-      resetResult();
+      resetResults();
       if (activeTool === 'SET_START') {
         setInputs((prev) => ({ ...prev, startPoint: clickPoint }));
       } else {
@@ -152,7 +189,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
         return;
       }
 
-      resetResult();
+      resetResults();
       if (activeTool === 'DRAW_FIELD') {
         setInputs((prev) => ({ ...prev, field: activePoints }));
         setActivePoints([]);
@@ -204,27 +241,62 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
     setActivePoints([]);
     setIsSnapping(false);
     setErrorMessage(null);
-    setPlannerResult(null);
+    resetResults();
     setActiveTool('DRAW_FIELD');
   };
 
   const handleLaunchSolver = () => {
     if (!inputs.field || !inputs.startPoint || !inputs.finishPoint) {
-      notifyError('Set Field, C_init, and C_final before running.');
+      notifyError('Please set Field Boundary, C_initial, and C_final before calculating.');
       return;
     }
 
-    const result = solveTriangularDecomposition(inputs);
-    if (result.error) {
-      notifyError(result.error);
-    } else if (!result.path) {
-      notifyError('No path found! C_init and C_final might be in disconnected regions.');
+    if (selectedAlgorithm === 'TRIANGULAR') {
+      const result = solveTriangularDecomposition(inputs);
+      if (result.error) {
+        notifyError(result.error);
+      } else if (!result.path) {
+        notifyError('No path found! Endpoints might be in disconnected free-space regions.');
+      }
+      setTriangularResult(result);
+    } else {
+      const result = solveTrapezoidalDecomposition(inputs);
+      if (result.error) {
+        notifyError(result.error);
+      } else if (!result.path) {
+        notifyError('No path found! Endpoints might be in disconnected free-space regions.');
+      }
+      setTrapezoidalResult(result);
     }
-    setPlannerResult(result);
+  };
+
+  const handleSelectAlgorithm = (algo: DecompositionType) => {
+    setSelectedAlgorithm(algo);
   };
 
   const handleToggleLayer = (key: keyof LayerVisibility) => {
-    setVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+    if (selectedAlgorithm === 'TRIANGULAR') {
+      setTriangularVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+    } else {
+      setTrapezoidalVisibility((prev) => ({ ...prev, [key]: !prev[key] }));
+    }
+  };
+
+  const handleToggleCompareBothPaths = () => {
+    const nextState = !compareBothPaths;
+    setCompareBothPaths(nextState);
+
+    // If enabling comparison and endpoints exist, ensure both solutions are computed
+    if (nextState && inputs.field && inputs.startPoint && inputs.finishPoint) {
+      if (!triangularResult) {
+        const tri = solveTriangularDecomposition(inputs);
+        setTriangularResult(tri);
+      }
+      if (!trapezoidalResult) {
+        const trap = solveTrapezoidalDecomposition(inputs);
+        setTrapezoidalResult(trap);
+      }
+    }
   };
 
   const lastActivePoint = activePoints[activePoints.length - 1];
@@ -234,8 +306,60 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
       ? [lastActivePoint.x, lastActivePoint.y, rubberBandTarget.x, rubberBandTarget.y]
       : [];
 
-  const traversedCellSet = new Set(plannerResult?.path?.traversedCellIds || []);
+  const traversedCellSet = new Set(activeResult?.path?.traversedCellIds || []);
   const canSolve = Boolean(inputs.field && inputs.startPoint && inputs.finishPoint);
+
+  // Waypoints computation for active category
+  const displayWaypoints: DisplayWaypoint[] = [];
+  if (activeResult && activeVisibility.showWaypoints) {
+    if (selectedAlgorithm === 'TRIANGULAR') {
+      // In Triangular: show midpoints along the traversed path
+      if (activeResult.path) {
+        activeResult.path.points.slice(1, -1).forEach((p, idx) => {
+          displayWaypoints.push({
+            x: p.x,
+            y: p.y,
+            label: `Q${idx + 1}`,
+            isOnPath: true,
+          });
+        });
+      }
+    } else {
+      // In Trapezoidal: show midpoints of the vertical cuts (Q1, Q2, ...)
+      const pathWaypoints = activeResult.path ? activeResult.path.points.slice(1, -1) : [];
+      const seen = new Set<string>();
+
+      pathWaypoints.forEach((p, idx) => {
+        const key = `${Math.round(p.x)},${Math.round(p.y)}`;
+        seen.add(key);
+        displayWaypoints.push({
+          x: p.x,
+          y: p.y,
+          label: `Q${idx + 1}`,
+          isOnPath: true,
+        });
+      });
+
+      let nextLabelIdx = pathWaypoints.length + 1;
+      // Add remaining vertical cut midpoints from cuts
+      if (activeResult.verticalCuts) {
+        for (const cut of activeResult.verticalCuts) {
+          const midX = cut.p1.x;
+          const midY = Math.round(((cut.p1.y + cut.p2.y) / 2) * 10) / 10;
+          const key = `${Math.round(midX)},${Math.round(midY)}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            displayWaypoints.push({
+              x: midX,
+              y: midY,
+              label: `Q${nextLabelIdx++}`,
+              isOnPath: false,
+            });
+          }
+        }
+      }
+    }
+  }
 
   return (
     <div
@@ -266,9 +390,15 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
       <LayerControls
         canSolve={canSolve}
         onSolve={handleLaunchSolver}
-        result={plannerResult}
-        visibility={visibility}
+        result={activeResult}
+        visibility={activeVisibility}
         onToggleLayer={handleToggleLayer}
+        selectedAlgorithm={selectedAlgorithm}
+        onSelectAlgorithm={handleSelectAlgorithm}
+        compareBothPaths={compareBothPaths}
+        onToggleCompareBothPaths={handleToggleCompareBothPaths}
+        triangularPathLength={triangularResult?.path?.totalLength}
+        trapezoidalPathLength={trapezoidalResult?.path?.totalLength}
       />
 
       {errorMessage && (
@@ -313,66 +443,122 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
-          {/* ================= 1. DECOMPOSITION & SEARCH LAYER ================= */}
-          {plannerResult && visibility.showDecomposition && (
+          {/* ================= 1. DECOMPOSITION LAYER (CELLS & LABELS) ================= */}
+          {activeResult && activeVisibility.showDecomposition && (
             <Layer>
-              {(plannerResult.cells as TriangleCell[]).map((cell) => {
-                const isTraversed = traversedCellSet.has(cell.id);
-                return (
-                  <Group key={`cell-${cell.id}`}>
-                    {/* Triangle Polygon (Yellow if traversed, matching slide 2) */}
-                    <Line
-                      points={cell.vertices.flatMap((v) => [v.x, v.y])}
-                      closed={true}
-                      fill={isTraversed ? 'rgba(254, 240, 138, 0.55)' : 'transparent'}
-                      stroke="#991b1b"
-                      strokeWidth={1.2}
-                      lineJoin="round"
-                    />
+              {selectedAlgorithm === 'TRIANGULAR' && activeResult.type === 'TRIANGULAR'
+                ? (activeResult.cells as TriangleCell[]).map((cell) => {
+                    const isTraversed = traversedCellSet.has(cell.id);
+                    return (
+                      <Group key={`cell-tri-${cell.id}`}>
+                        <Line
+                          points={cell.vertices.flatMap((v) => [v.x, v.y])}
+                          closed={true}
+                          fill={isTraversed ? 'rgba(254, 240, 138, 0.55)' : 'transparent'}
+                          stroke="#991b1b"
+                          strokeWidth={1.2}
+                          lineJoin="round"
+                        />
+                        <Circle
+                          x={cell.centroid.x}
+                          y={cell.centroid.y}
+                          radius={11}
+                          fill={isTraversed ? '#fef08a' : '#ffffff'}
+                          stroke="#991b1b"
+                          strokeWidth={1.2}
+                        />
+                        <Text
+                          x={cell.centroid.x - 9}
+                          y={cell.centroid.y - 6}
+                          width={18}
+                          align="center"
+                          text={cell.id.toString()}
+                          fontSize={10}
+                          fontStyle="bold"
+                          fill="#1e293b"
+                        />
+                      </Group>
+                    );
+                  })
+                : selectedAlgorithm === 'TRAPEZOIDAL' && activeResult.type === 'TRAPEZOIDAL'
+                ? (
+                    <>
+                      {/* Trapezoid cell filled area: NO BLUE BORDER (stroke="transparent") */}
+                      {(activeResult.cells as TrapezoidCell[]).map((cell) => {
+                        const isTraversed = traversedCellSet.has(cell.id);
+                        return (
+                          <Line
+                            key={`cell-trap-fill-${cell.id}`}
+                            points={cell.vertices.flatMap((v) => [v.x, v.y])}
+                            closed={true}
+                            fill={isTraversed ? 'rgba(254, 240, 138, 0.45)' : 'transparent'}
+                            stroke="transparent"
+                            strokeWidth={0}
+                          />
+                        );
+                      })}
 
-                    {/* Cell Label Circle & Number k_i at Centroid */}
-                    <Circle
-                      x={cell.centroid.x}
-                      y={cell.centroid.y}
-                      radius={10}
-                      fill={isTraversed ? '#fef08a' : '#ffffff'}
-                      stroke="#991b1b"
-                      strokeWidth={1.2}
-                    />
-                    <Text
-                      x={cell.centroid.x - 7}
-                      y={cell.centroid.y - 5}
-                      width={14}
-                      align="center"
-                      text={cell.id.toString()}
-                      fontSize={10}
-                      fontStyle="bold"
-                      fill="#1e293b"
-                    />
-                  </Group>
-                );
-              })}
+                      {/* Purple vertical cuts (perpendiculars) combined under Cells & Labels */}
+                      {activeResult.verticalCuts?.map((cut, idx) => (
+                        <Line
+                          key={`vcut-${idx}`}
+                          points={[cut.p1.x, cut.p1.y, cut.p2.x, cut.p2.y]}
+                          stroke="#7c3aed"
+                          strokeWidth={2}
+                          lineCap="round"
+                        />
+                      ))}
+
+                      {/* Centroid label marker k_i */}
+                      {(activeResult.cells as TrapezoidCell[]).map((cell) => {
+                        const isTraversed = traversedCellSet.has(cell.id);
+                        return (
+                          <Group key={`cell-trap-label-${cell.id}`}>
+                            <Circle
+                              x={cell.centroid.x}
+                              y={cell.centroid.y}
+                              radius={11}
+                              fill={isTraversed ? '#fef08a' : '#ffffff'}
+                              stroke="#6d28d9"
+                              strokeWidth={1.2}
+                            />
+                            <Text
+                              x={cell.centroid.x - 9}
+                              y={cell.centroid.y - 6}
+                              width={18}
+                              align="center"
+                              text={cell.id.toString()}
+                              fontSize={10}
+                              fontStyle="bold"
+                              fill="#1e293b"
+                            />
+                          </Group>
+                        );
+                      })}
+                    </>
+                  )
+                : null}
             </Layer>
           )}
 
           {/* ================= 2. DUAL CONNECTIVITY GRAPH G LAYER ================= */}
-          {plannerResult && visibility.showGraph && (
+          {activeResult && activeVisibility.showGraph && (
             <Layer>
-              {Array.from(plannerResult.graph.adjacency.entries()).map(([fromId, edges]) => {
-                const fromNode = plannerResult.graph.nodes.get(fromId);
+              {Array.from(activeResult.graph.adjacency.entries()).map(([fromId, edges]) => {
+                const fromNode = activeResult.graph.nodes.get(fromId);
                 if (!fromNode) return null;
 
                 return edges.map((edge) => {
-                  if (fromId > edge.toNodeId) return null; // Render each undirected edge once
-                  const toNode = plannerResult.graph.nodes.get(edge.toNodeId);
+                  if (fromId > edge.toNodeId) return null;
+                  const toNode = activeResult.graph.nodes.get(edge.toNodeId);
                   if (!toNode) return null;
 
                   return (
                     <Line
-                      key={`g-edge-${fromId}-${edge.toNodeId}`}
+                      key={`g-edge-${selectedAlgorithm}-${fromId}-${edge.toNodeId}`}
                       points={[fromNode.center.x, fromNode.center.y, toNode.center.x, toNode.center.y]}
-                      stroke="#64748b"
-                      strokeWidth={1.2}
+                      stroke={selectedAlgorithm === 'TRAPEZOIDAL' ? '#818cf8' : '#64748b'}
+                      strokeWidth={1.3}
                       dash={[4, 3]}
                     />
                   );
@@ -383,7 +569,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
 
           {/* ================= 3. USER GEOMETRY LAYER ================= */}
           <Layer>
-            {/* Field Boundary */}
+            {/* Field Boundary (Teal outline) */}
             {inputs.field && (
               <Line
                 points={inputs.field.flatMap((p) => [p.x, p.y])}
@@ -459,45 +645,70 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
           </Layer>
 
           {/* ================= 4. TRAJECTORY & WAYPOINTS LAYER ================= */}
-          {plannerResult?.path && (
-            <Layer>
-              {/* Solved Path Trajectory Line */}
-              {visibility.showPath && (
+          {/* A: Trajectory Path(s) */}
+          <Layer>
+            {compareBothPaths ? (
+              // SIMULTANEOUS PATHS DISPLAY (Triangular Green + Trapezoidal Blue, purely the paths!)
+              <>
+                {triangularResult?.path && (
+                  <Line
+                    points={triangularResult.path.points.flatMap((p) => [p.x, p.y])}
+                    stroke="#16a34a"
+                    strokeWidth={3.5}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
+                {trapezoidalResult?.path && (
+                  <Line
+                    points={trapezoidalResult.path.points.flatMap((p) => [p.x, p.y])}
+                    stroke="#2563eb"
+                    strokeWidth={3.5}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                )}
+              </>
+            ) : (
+              // Active category single path
+              activeVisibility.showPath &&
+              activeResult?.path && (
                 <Line
-                  points={plannerResult.path.points.flatMap((p) => [p.x, p.y])}
-                  stroke="#16a34a"
+                  points={activeResult.path.points.flatMap((p) => [p.x, p.y])}
+                  stroke={selectedAlgorithm === 'TRAPEZOIDAL' ? '#2563eb' : '#16a34a'}
                   strokeWidth={3.5}
                   lineCap="round"
                   lineJoin="round"
                 />
-              )}
+              )
+            )}
 
-              {/* Waypoints Q_j at shared edge midpoints */}
-              {visibility.showWaypoints &&
-                plannerResult.path.points.slice(1, -1).map((q, idx) => (
-                  <Group key={`waypoint-${idx}`}>
-                    <Circle
-                      x={q.x}
-                      y={q.y}
-                      radius={4.5}
-                      fill="#eab308"
-                      stroke="#000000"
-                      strokeWidth={1}
-                    />
-                    <Text
-                      x={q.x + 6}
-                      y={q.y - 10}
-                      text={`Q${idx + 1}`}
-                      fontSize={11}
-                      fontStyle="bold"
-                      fill="#0f172a"
-                    />
-                  </Group>
-                ))}
-            </Layer>
-          )}
+            {/* Waypoints Q_j for active category */}
+            {!compareBothPaths &&
+              activeVisibility.showWaypoints &&
+              displayWaypoints.map((wp, idx) => (
+                <Group key={`wp-${selectedAlgorithm}-${idx}`}>
+                  <Circle
+                    x={wp.x}
+                    y={wp.y}
+                    radius={wp.isOnPath ? 5.5 : 4}
+                    fill={wp.isOnPath ? '#fef08a' : '#fef9c3'}
+                    stroke={wp.isOnPath ? '#854d0e' : '#a16207'}
+                    strokeWidth={wp.isOnPath ? 1.5 : 1}
+                  />
+                  <Text
+                    x={wp.x + 6}
+                    y={wp.y - 10}
+                    text={wp.label}
+                    fontSize={11}
+                    fontStyle="bold"
+                    fill="#0f172a"
+                  />
+                </Group>
+              ))}
+          </Layer>
 
-          {/* ================= 5. START / FINISH MARKERS ================= */}
+          {/* ================= 5. START / FINISH MARKERS (C_initial & C_final) ================= */}
           <Layer>
             {inputs.startPoint && (
               <Group>
@@ -505,17 +716,17 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                   x={inputs.startPoint.x}
                   y={inputs.startPoint.y}
                   radius={7}
-                  fill="#800000"
+                  fill="#16a34a"
                   stroke="#ffffff"
                   strokeWidth={2}
                 />
                 <Text
                   x={inputs.startPoint.x + 8}
                   y={inputs.startPoint.y - 8}
-                  text="C_init"
+                  text="C_initial"
                   fontSize={13}
                   fontStyle="bold"
-                  fill="#00008b"
+                  fill="#15803d"
                 />
               </Group>
             )}
@@ -526,7 +737,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                   x={inputs.finishPoint.x}
                   y={inputs.finishPoint.y}
                   radius={7}
-                  fill="#800000"
+                  fill="#dc2626"
                   stroke="#ffffff"
                   strokeWidth={2}
                 />
@@ -536,7 +747,7 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
                   text="C_final"
                   fontSize={13}
                   fontStyle="bold"
-                  fill="#00008b"
+                  fill="#b91c1c"
                 />
               </Group>
             )}
