@@ -193,16 +193,7 @@ export const LayerControls: React.FC<LayerControlsProps> = ({
               checked={visibility.showDecomposition}
               onChange={() => onToggleLayer('showDecomposition')}
             />
-            Cells & Labels (k_i)
-          </label>
-
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={visibility.showGraph}
-              onChange={() => onToggleLayer('showGraph')}
-            />
-            Dual Graph G
+            Cells
           </label>
 
           <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
