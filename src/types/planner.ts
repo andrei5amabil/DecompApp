@@ -39,8 +39,7 @@ export interface PlannerResult {
 
 export interface LayerVisibility {
   showGeometry: boolean;      // Field and obstacles
-  showDecomposition: boolean; // Cells (triangles / trapezoids & perpendiculars) and labels k_i
-  showGraph: boolean;         // Dual connectivity graph G
+  showDecomposition: boolean; // Cells (triangles / trapezoids & perpendiculars)
   showWaypoints: boolean;     // Q_j midpoint markers
   showPath: boolean;          // Final trajectory line
 }

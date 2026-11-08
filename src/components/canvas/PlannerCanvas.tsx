@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Stage, Layer, Line, Circle, Text, Group } from 'react-konva';
 import { type KonvaEventObject } from 'konva/lib/Node';
-import { type Point, type TriangleCell, type TrapezoidCell } from '../../types/geometry';
+import { type Point, type TriangleCell } from '../../types/geometry';
 import {
   type DecompositionType,
   type DrawingTool,
@@ -64,7 +64,6 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
   const [triangularVisibility, setTriangularVisibility] = useState<LayerVisibility>({
     showGeometry: true,
     showDecomposition: true,
-    showGraph: true,
     showWaypoints: true,
     showPath: true,
   });
@@ -72,7 +71,6 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
   const [trapezoidalVisibility, setTrapezoidalVisibility] = useState<LayerVisibility>({
     showGeometry: true,
     showDecomposition: true,
-    showGraph: true,
     showWaypoints: true,
     showPath: true,
   });
@@ -306,7 +304,6 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
       ? [lastActivePoint.x, lastActivePoint.y, rubberBandTarget.x, rubberBandTarget.y]
       : [];
 
-  const traversedCellSet = new Set(activeResult?.path?.traversedCellIds || []);
   const canSolve = Boolean(inputs.field && inputs.startPoint && inputs.finishPoint);
 
   // Waypoints computation for active category
@@ -443,127 +440,32 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
-          {/* ================= 1. DECOMPOSITION LAYER (CELLS & LABELS) ================= */}
+          {/* ================= 1. DECOMPOSITION LAYER (CELLS) ================= */}
           {activeResult && activeVisibility.showDecomposition && (
             <Layer>
               {selectedAlgorithm === 'TRIANGULAR' && activeResult.type === 'TRIANGULAR'
-                ? (activeResult.cells as TriangleCell[]).map((cell) => {
-                    const isTraversed = traversedCellSet.has(cell.id);
-                    return (
-                      <Group key={`cell-tri-${cell.id}`}>
-                        <Line
-                          points={cell.vertices.flatMap((v) => [v.x, v.y])}
-                          closed={true}
-                          fill={isTraversed ? 'rgba(254, 240, 138, 0.55)' : 'transparent'}
-                          stroke="#991b1b"
-                          strokeWidth={1.2}
-                          lineJoin="round"
-                        />
-                        <Circle
-                          x={cell.centroid.x}
-                          y={cell.centroid.y}
-                          radius={11}
-                          fill={isTraversed ? '#fef08a' : '#ffffff'}
-                          stroke="#991b1b"
-                          strokeWidth={1.2}
-                        />
-                        <Text
-                          x={cell.centroid.x - 9}
-                          y={cell.centroid.y - 6}
-                          width={18}
-                          align="center"
-                          text={cell.id.toString()}
-                          fontSize={10}
-                          fontStyle="bold"
-                          fill="#1e293b"
-                        />
-                      </Group>
-                    );
-                  })
-                : selectedAlgorithm === 'TRAPEZOIDAL' && activeResult.type === 'TRAPEZOIDAL'
-                ? (
-                    <>
-                      {/* Trapezoid cell filled area: NO BLUE BORDER (stroke="transparent") */}
-                      {(activeResult.cells as TrapezoidCell[]).map((cell) => {
-                        const isTraversed = traversedCellSet.has(cell.id);
-                        return (
-                          <Line
-                            key={`cell-trap-fill-${cell.id}`}
-                            points={cell.vertices.flatMap((v) => [v.x, v.y])}
-                            closed={true}
-                            fill={isTraversed ? 'rgba(254, 240, 138, 0.45)' : 'transparent'}
-                            stroke="transparent"
-                            strokeWidth={0}
-                          />
-                        );
-                      })}
-
-                      {/* Purple vertical cuts (perpendiculars) combined under Cells & Labels */}
-                      {activeResult.verticalCuts?.map((cut, idx) => (
-                        <Line
-                          key={`vcut-${idx}`}
-                          points={[cut.p1.x, cut.p1.y, cut.p2.x, cut.p2.y]}
-                          stroke="#7c3aed"
-                          strokeWidth={2}
-                          lineCap="round"
-                        />
-                      ))}
-
-                      {/* Centroid label marker k_i */}
-                      {(activeResult.cells as TrapezoidCell[]).map((cell) => {
-                        const isTraversed = traversedCellSet.has(cell.id);
-                        return (
-                          <Group key={`cell-trap-label-${cell.id}`}>
-                            <Circle
-                              x={cell.centroid.x}
-                              y={cell.centroid.y}
-                              radius={11}
-                              fill={isTraversed ? '#fef08a' : '#ffffff'}
-                              stroke="#6d28d9"
-                              strokeWidth={1.2}
-                            />
-                            <Text
-                              x={cell.centroid.x - 9}
-                              y={cell.centroid.y - 6}
-                              width={18}
-                              align="center"
-                              text={cell.id.toString()}
-                              fontSize={10}
-                              fontStyle="bold"
-                              fill="#1e293b"
-                            />
-                          </Group>
-                        );
-                      })}
-                    </>
-                  )
-                : null}
-            </Layer>
-          )}
-
-          {/* ================= 2. DUAL CONNECTIVITY GRAPH G LAYER ================= */}
-          {activeResult && activeVisibility.showGraph && (
-            <Layer>
-              {Array.from(activeResult.graph.adjacency.entries()).map(([fromId, edges]) => {
-                const fromNode = activeResult.graph.nodes.get(fromId);
-                if (!fromNode) return null;
-
-                return edges.map((edge) => {
-                  if (fromId > edge.toNodeId) return null;
-                  const toNode = activeResult.graph.nodes.get(edge.toNodeId);
-                  if (!toNode) return null;
-
-                  return (
+                ? (activeResult.cells as TriangleCell[]).map((cell) => (
                     <Line
-                      key={`g-edge-${selectedAlgorithm}-${fromId}-${edge.toNodeId}`}
-                      points={[fromNode.center.x, fromNode.center.y, toNode.center.x, toNode.center.y]}
-                      stroke={selectedAlgorithm === 'TRAPEZOIDAL' ? '#818cf8' : '#64748b'}
-                      strokeWidth={1.3}
-                      dash={[4, 3]}
+                      key={`cell-tri-${cell.id}`}
+                      points={cell.vertices.flatMap((v) => [v.x, v.y])}
+                      closed={true}
+                      fill="transparent"
+                      stroke="#991b1b"
+                      strokeWidth={1.2}
+                      lineJoin="round"
                     />
-                  );
-                });
-              })}
+                  ))
+                : selectedAlgorithm === 'TRAPEZOIDAL' && activeResult.type === 'TRAPEZOIDAL'
+                ? activeResult.verticalCuts?.map((cut, idx) => (
+                    <Line
+                      key={`vcut-${idx}`}
+                      points={[cut.p1.x, cut.p1.y, cut.p2.x, cut.p2.y]}
+                      stroke="#7c3aed"
+                      strokeWidth={2}
+                      lineCap="round"
+                    />
+                  ))
+                : null}
             </Layer>
           )}
 

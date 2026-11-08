@@ -1,7 +1,7 @@
 import { type Point, type Segment, type TrapezoidCell } from '../../types/geometry';
 import { type ConnectivityGraph, type GraphNode, type GraphEdge } from '../../types/graph';
 
-const MIN_OVERLAP_PX = 1.0;
+const MIN_OVERLAP_PX = 0.5;
 
 /**
  * Builds the dual connectivity graph G for trapezoidal decomposition.
@@ -32,10 +32,10 @@ export function buildTrapezoidalDualGraph(cells: TrapezoidCell[]): ConnectivityG
       let leftCell: TrapezoidCell | null = null;
       let rightCell: TrapezoidCell | null = null;
 
-      if (Math.abs(cellA.rightX - cellB.leftX) < 1.0) {
+      if (Math.abs(cellA.rightX - cellB.leftX) < 1e-2) {
         leftCell = cellA;
         rightCell = cellB;
-      } else if (Math.abs(cellB.rightX - cellA.leftX) < 1.0) {
+      } else if (Math.abs(cellB.rightX - cellA.leftX) < 1e-2) {
         leftCell = cellB;
         rightCell = cellA;
       }
