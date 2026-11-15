@@ -11,8 +11,46 @@ interface LayerControlsProps {
   onSelectAlgorithm: (algo: DecompositionType) => void;
   compareBothPaths: boolean;
   onToggleCompareBothPaths: () => void;
-  triangularPathLength?: number;
-  trapezoidalPathLength?: number;
+  triangularResult: PlannerResult | null;
+  trapezoidalResult: PlannerResult | null;
+}
+
+function renderMethodSummary(label: string, color: string, data: PlannerResult | null) {
+  const totalCells = data ? data.cells.length : null;
+  const traversedCells = data ? (data.path ? data.path.traversedCellIds.length : 0) : null;
+  const pathLength = data?.path ? `${data.path.totalLength}px` : data ? 'No path' : 'Not computed';
+
+  return (
+    <div
+      key={label}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '8px',
+        padding: '6px 10px',
+        borderRadius: '6px',
+        backgroundColor: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        fontSize: '12px',
+        fontVariantNumeric: 'tabular-nums',
+        color: '#334155',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span style={{ color, fontWeight: 700 }}>{label}:</span>
+      <span style={{ whiteSpace: 'nowrap' }}>
+        {data ? (
+          <>
+            Path: <b>{pathLength}</b> | Total Cells: <b>{totalCells}</b> | Traversed:{' '}
+            <b>{traversedCells}</b>
+          </>
+        ) : (
+          <span style={{ color: '#94a3b8' }}>Not computed</span>
+        )}
+      </span>
+    </div>
+  );
 }
 
 export const LayerControls: React.FC<LayerControlsProps> = ({
@@ -25,10 +63,11 @@ export const LayerControls: React.FC<LayerControlsProps> = ({
   onSelectAlgorithm,
   compareBothPaths,
   onToggleCompareBothPaths,
-  triangularPathLength,
-  trapezoidalPathLength,
+  triangularResult,
+  trapezoidalResult,
 }) => {
   const isTriangular = selectedAlgorithm === 'TRIANGULAR';
+  const showComparisonSummary = compareBothPaths && Boolean(triangularResult || trapezoidalResult);
 
   return (
     <div
@@ -135,23 +174,23 @@ export const LayerControls: React.FC<LayerControlsProps> = ({
         <div
           style={{
             fontSize: '12px',
-            color: result ? '#334155' : '#94a3b8',
+            color: result || showComparisonSummary ? '#334155' : '#94a3b8',
             fontFamily: 'monospace',
             textAlign: 'right',
             whiteSpace: 'nowrap',
           }}
         >
-          {compareBothPaths && (triangularPathLength || trapezoidalPathLength) ? (
-            <span>
-              <span style={{ color: '#16a34a', fontWeight: 700 }}>Triangular Path:</span>{' '}
-              <b>{triangularPathLength ? `${triangularPathLength}px` : 'Not computed'}</b> |{' '}
-              <span style={{ color: '#2563eb', fontWeight: 700 }}>Trapezoidal Path:</span>{' '}
-              <b>{trapezoidalPathLength ? `${trapezoidalPathLength}px` : 'Not computed'}</b>
-            </span>
+          {showComparisonSummary ? (
+            <span style={{ color: '#15803d', fontWeight: 700 }}>Comparing Both Methods</span>
           ) : result ? (
             <>
               <b>{isTriangular ? 'Triangular' : 'Trapezoidal'}</b> | Cells: <b>{result.cells.length}</b>
-              {result.path && <> | Path Length: <b>{result.path.totalLength}px</b></>}
+              {result.path && (
+                <>
+                  {' '}| Traversed: <b>{result.path.traversedCellIds.length}</b> | Path:{' '}
+                  <b>{result.path.totalLength}px</b>
+                </>
+              )}
             </>
           ) : (
             <span>Not computed ({isTriangular ? 'Triangular' : 'Trapezoidal'})</span>
@@ -240,6 +279,22 @@ export const LayerControls: React.FC<LayerControlsProps> = ({
           Compare Both Paths (<span style={{ color: '#16a34a' }}>■ Tri</span> + <span style={{ color: '#2563eb' }}>■ Trap</span>)
         </label>
       </div>
+
+      {/* Row 3: Comparison metrics for both methods (path length, total cells, traversed cells) */}
+      {showComparisonSummary && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '8px',
+            paddingTop: '8px',
+            borderTop: '1px solid #f1f5f9',
+          }}
+        >
+          {renderMethodSummary('Triangular', '#16a34a', triangularResult)}
+          {renderMethodSummary('Trapezoidal', '#2563eb', trapezoidalResult)}
+        </div>
+      )}
     </div>
   );
 };
