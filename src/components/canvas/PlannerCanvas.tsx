@@ -394,8 +394,8 @@ export const PlannerCanvas: React.FC<PlannerCanvasProps> = ({
         onSelectAlgorithm={handleSelectAlgorithm}
         compareBothPaths={compareBothPaths}
         onToggleCompareBothPaths={handleToggleCompareBothPaths}
-        triangularPathLength={triangularResult?.path?.totalLength}
-        trapezoidalPathLength={trapezoidalResult?.path?.totalLength}
+        triangularResult={triangularResult}
+        trapezoidalResult={trapezoidalResult}
       />
 
       {errorMessage && (
